@@ -20,6 +20,8 @@ from spec_resolution_agent import spec_resolution_agent, resolve_specs
 from product_search_agent import query_builder_agent, search_products
 # pyrefly: ignore [missing-import]
 from compliance_check_agent import compliance_check_agent, check_compliance
+# pyrefly: ignore [missing-import]
+from review_analysis_agent import review_analysis_agent, analyse_reviews
 
 APP_NAME = "amazesearch_app"
 USER_ID = "demo_user"
@@ -27,6 +29,7 @@ SESSION_ID = "demo_session"
 SPEC_SESSION_ID = "demo_session_spec_resolution"
 SEARCH_SESSION_ID = "demo_session_product_search"
 COMPLIANCE_SESSION_ID = "demo_session_compliance_check"
+REVIEW_SESSION_ID = "demo_session_review_analysis"
 
 
 async def main():
@@ -42,6 +45,9 @@ async def main():
     )
     await session_service.create_session(
         app_name=APP_NAME, user_id=USER_ID, session_id=COMPLIANCE_SESSION_ID
+    )
+    await session_service.create_session(
+        app_name=APP_NAME, user_id=USER_ID, session_id=REVIEW_SESSION_ID
     )
 
     # Runner for first_agent (the refinement loop)
@@ -69,6 +75,13 @@ async def main():
     compliance_runner = Runner(
         app_name=APP_NAME,
         agent=compliance_check_agent,
+        session_service=session_service,
+    )
+
+    # Runner for review_analysis_agent (review extraction + trust scoring)
+    review_runner = Runner(
+        app_name=APP_NAME,
+        agent=review_analysis_agent,
         session_service=session_service,
     )
 
@@ -148,6 +161,40 @@ async def main():
     print(f"\n✅ {total_compliant} compliant products found!\n")
     print("Final Compliant Products:")
     print(compliant.model_dump_json(indent=2))
+
+    if total_compliant == 0:
+        print("\nNo compliant products to analyse reviews for. Exiting.")
+        return
+
+    # ── Stage 5: Analyse reviews for trust scoring ─────────────────────────
+    print("\nAnalysing reviews and computing trust scores...\n")
+
+    try:
+        review_analysis = await analyse_reviews(
+            review_runner, USER_ID, REVIEW_SESSION_ID, compliant
+        )
+    except Exception as e:
+        print(f"\n[Error analysing reviews: {e}]")
+        return
+
+    total_analysed = sum(len(g.analyzed_products) for g in review_analysis.items)
+    print(f"\n🔍 Analysed reviews for {total_analysed} products!\n")
+    for group in review_analysis.items:
+        print(f"\n── {group.product} ──")
+        for p in group.analyzed_products:
+            print(f"\n  📦 {p.title} (ASIN: {p.asin})")
+            print(f"     Trust Score: {p.trust_score}/100 — {p.trust_reasoning}")
+            print(f"     Reviews Analyzed: {p.reviews_analyzed}")
+            if p.good_points:
+                print("     ✅ Good Points:")
+                for gp in p.good_points:
+                    print(f"        + {gp}")
+            if p.bad_points:
+                print("     ❌ Bad Points:")
+                for bp in p.bad_points:
+                    print(f"        - {bp}")
+    print("\nFull Review Analysis:")
+    print(review_analysis.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":
