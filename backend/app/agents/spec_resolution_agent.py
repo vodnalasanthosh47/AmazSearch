@@ -6,7 +6,7 @@ from google.adk.runners import Runner
 from google.genai import types
 
 # pyrefly: ignore [missing-import]
-from first_agent import InferredSetupSpecs
+from first_agent import InferredSetupSpecs, LLM_USED
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ constraints.
 
 spec_search_agent = Agent(
     name="spec_search_agent",
-    model="gemini-2.5-flash",
+    model=LLM_USED,
     instruction=SEARCH_INSTRUCTION,
     tools=[google_search],
     output_key="spec_research_notes",
@@ -88,7 +88,7 @@ Research notes:
 
 spec_structurer_agent = Agent(
     name="spec_structurer_agent",
-    model="gemini-2.5-flash",
+    model=LLM_USED,
     instruction=STRUCTURE_INSTRUCTION,
     output_schema=ResolvedSetupSpecs,
     output_key="resolved_specs",

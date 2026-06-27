@@ -23,6 +23,8 @@ from tools.amazon_product import amazon_product
 
 # pyrefly: ignore [missing-import]
 from product_search_agent import ProductSearchResults, SearchResultProduct
+# pyrefly: ignore [missing-import]
+from first_agent import LLM_USED
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +123,7 @@ IMPORTANT:
 
 compliance_check_subagent = Agent(
     name="compliance_check_subagent",
-    model="gemini-2.5-flash",
+    model=LLM_USED,
     instruction=COMPLIANCE_INSTRUCTION,
     tools=[amazon_product, google_search],
     output_key="compliance_notes",
@@ -155,7 +157,7 @@ Compliance notes:
 
 compliance_structurer_agent = Agent(
     name="compliance_structurer_agent",
-    model="gemini-2.5-flash",
+    model=LLM_USED,
     instruction=STRUCTURE_INSTRUCTION,
     output_schema=ComplianceResults,
     output_key="compliance_results",

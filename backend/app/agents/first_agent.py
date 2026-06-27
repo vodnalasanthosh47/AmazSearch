@@ -1,9 +1,11 @@
+import os
 from typing import List
 from pydantic import BaseModel, Field
 from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.genai import types
 
+LLM_USED = os.environ.get("LLM_TO_USE", "gemini-2.5-flash")
 
 # 1. Define the Nested Product Structure
 class ProductItem(BaseModel):
@@ -38,7 +40,7 @@ Rules:
 # 4. Instantiate the Agent with native Pydantic enforcement
 first_agent = Agent(
     name="first_agent",
-    model="gemini-2.5-flash",
+    model=LLM_USED,
     instruction=SYSTEM_INSTRUCTION,
     output_schema=InferredSetupSpecs,
 )

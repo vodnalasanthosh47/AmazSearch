@@ -27,6 +27,8 @@ from tools.amazon_search import amazon_search
 
 # pyrefly: ignore [missing-import]
 from spec_resolution_agent import ResolvedSetupSpecs
+# pyrefly: ignore [missing-import]
+from first_agent import LLM_USED
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +128,7 @@ PER distinct model/spec entry (duplicating the product name).
 
 query_builder_agent = Agent(
     name="query_builder_agent",
-    model="gemini-2.5-flash",
+    model=LLM_USED,
     instruction=QUERY_BUILDER_INSTRUCTION,
     output_schema=SearchQueries,
     output_key="search_queries",
