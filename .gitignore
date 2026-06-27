@@ -20,6 +20,7 @@ env/
 .vscode/
 .idea/
 *.swp
+pyrefly.toml
 
 # OS
 .DS_Store

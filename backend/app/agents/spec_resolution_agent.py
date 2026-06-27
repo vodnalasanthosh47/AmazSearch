@@ -5,6 +5,7 @@ from google.adk.tools import google_search
 from google.adk.runners import Runner
 from google.genai import types
 
+# pyrefly: ignore [missing-import]
 from first_agent import InferredSetupSpecs
 
 
@@ -44,6 +45,8 @@ For EACH item in that JSON:
    anything beyond what each constraint asks for.
 2. Note concrete, verifiable specs/standards (e.g. "30W USB-C PD"),
    not vague marketing language.
+3. Do not add unnecessary seller brands in your spec_list, unless the constraints specifies the prefered seller/sellers.
+4. Make sure user's preferences are included in the specs_list. (e.g. for men/women, colour)
 
 Write your findings as a clear plain-text summary, one section per product. For each
 product, restate its product name and original constraint_list EXACTLY as given in the
@@ -130,6 +133,7 @@ async def resolve_specs(
     session = await runner.session_service.get_session(
         app_name=runner.app_name, user_id=user_id, session_id=session_id
     )
+    # pyrefly: ignore [missing-attribute]
     resolved_json = session.state.get("resolved_specs")
     if resolved_json is None:
         raise RuntimeError(
