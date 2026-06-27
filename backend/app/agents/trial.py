@@ -10,10 +10,6 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-
-# ── Load API key ───────────────────────────────────────────────────────────────
-# trial.py lives at  backend/app/agents/trial.py
-# .env lives at      backend/.env  (3 levels up from this file)
 _env_path = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(dotenv_path=_env_path)
 
