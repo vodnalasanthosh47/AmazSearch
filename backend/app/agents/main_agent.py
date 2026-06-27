@@ -3,6 +3,12 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+# ⚠️  load_dotenv MUST run BEFORE importing agents — first_agent.py reads
+#     LLM_TO_USE from os.environ at import time.
+_env_path = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=_env_path)
+
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
@@ -14,11 +20,6 @@ from spec_resolution_agent import spec_resolution_agent, resolve_specs
 from product_search_agent import query_builder_agent, search_products
 # pyrefly: ignore [missing-import]
 from compliance_check_agent import compliance_check_agent, check_compliance
-
-# main_agent.py lives at  backend/app/agents/main_agent.py
-# .env lives at          backend/.env  (3 levels up from this file)
-_env_path = Path(__file__).resolve().parents[2] / ".env"
-load_dotenv(dotenv_path=_env_path)
 
 APP_NAME = "amazesearch_app"
 USER_ID = "demo_user"

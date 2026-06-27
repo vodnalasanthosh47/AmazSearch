@@ -182,6 +182,7 @@ async def search_products(
 
     # ── Step 2: Programmatic Amazon search (no LLM in the data path) ───────
     result_groups: List[ProductSearchGroup] = []
+    seen_asins: set[str] = set()  # deduplicate across all queries
 
     for q in queries.items:
         print(f"  🔍 Searching Amazon: \"{q.search_query}\"")
@@ -190,8 +191,12 @@ async def search_products(
         products: List[SearchResultProduct] = []
         if raw.get("status") == "success":
             for p in raw.get("products", []):
+                asin = p.get("asin", "")
+                if not asin or asin in seen_asins:
+                    continue  # skip duplicates and items without ASIN
+                seen_asins.add(asin)
                 products.append(SearchResultProduct(
-                    asin=p.get("asin", ""),
+                    asin=asin,
                     title=p.get("title", ""),
                     brand=p.get("brand"),
                     price=p.get("price"),

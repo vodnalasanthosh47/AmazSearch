@@ -1,12 +1,20 @@
 """
 compliance_check_agent.py — Agent 4 in the pipeline.
 
-Takes all products from product_search_agent (Agent 3), inspects each one using
-amazon_product (for detailed specs/features) and google_search (for external
-compliance/standard verification), then filters to return only products that
-are compliant with the resolved specs_list.
+Takes all products from product_search_agent (Agent 3), enriches each one
+with detailed specs via amazon_product (called programmatically), then uses
+an LLM with google_search to verify compliance against the specs_list.
+Returns only products that are compliant.
+
+Architecture:
+  - Python code calls amazon_product for each ASIN (no LLM needed for data
+    fetching → avoids the built-in-tool + function-calling mixing error).
+  - LLM agent with ONLY google_search verifies compliance using the enriched
+    product data.
+  - Structurer agent converts notes to strict schema.
 """
 
+import json
 import sys
 from pathlib import Path
 from typing import List
@@ -37,7 +45,7 @@ class CompliantProduct(BaseModel):
     title: str = Field(description="Product title.")
     brand: str | None = Field(default=None, description="Brand name.")
     price: str | None = Field(default=None, description="Formatted price.")
-    rating: float | None = Field(default=None, description="Average rating 0.0–5.0.")
+    rating: float | None = Field(default=None, description="Average rating 0.0-5.0.")
     ratings_count: int | None = Field(default=None, description="Total number of ratings.")
     image: str | None = Field(default=None, description="Primary thumbnail URL.")
     url: str | None = Field(default=None, description="Canonical Amazon product URL.")
@@ -67,21 +75,36 @@ class ComplianceResults(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Sub-agent 4a: CHECKS each product for spec compliance.
-# Has tools → must NOT have output_schema (ADK constraint).
+# Sub-agent 4a: VERIFIES compliance using google_search ONLY.
+# amazon_product details are already embedded in the input by the helper.
+# Has tools (google_search only) → must NOT have output_schema.
 # ---------------------------------------------------------------------------
 
 COMPLIANCE_INSTRUCTION = """\
-You receive a JSON object with Amazon search results grouped by product category,
-shaped like:
+You receive a JSON object with Amazon products grouped by category. Each product
+has already been enriched with detailed information (description, feature_bullets,
+specifications) fetched from Amazon. The data is shaped like:
+
 {
   "items": [
     {
       "product": "...",
       "specs_list": ["spec1", "spec2", ...],
-      "search_query": "...",
       "products": [
-        {"asin": "...", "title": "...", "brand": "...", "price": "...", ...},
+        {
+          "asin": "...",
+          "title": "...",
+          "brand": "...",
+          "price": "...",
+          "rating": ...,
+          "ratings_count": ...,
+          "image": "...",
+          "url": "...",
+          "is_prime": true/false,
+          "description": "...",
+          "feature_bullets": ["...", ...],
+          "specifications": {"key": "value", ...}
+        },
         ...
       ]
     },
@@ -89,21 +112,17 @@ shaped like:
   ]
 }
 
-Your job is to verify which products ACTUALLY comply with ALL specs in the
-specs_list for their category. For EACH product category:
+Your job is to determine which products COMPLY with ALL specs in specs_list
+for their category:
 
-1. Go through each product in the "products" list.
-2. For each product, call amazon_product with its ASIN to fetch detailed
-   specifications, feature bullets, and description.
-3. Cross-reference the detailed product info against the specs_list.
-   If certain specs cannot be confirmed from Amazon data alone, use
+1. For each product, cross-reference the provided description, feature_bullets,
+   and specifications against the specs_list.
+2. If a spec cannot be confirmed from the provided Amazon data alone, use
    google_search to look up "<product title> <spec>" to verify.
-4. A product is COMPLIANT only if it satisfies ALL specs in specs_list.
-   Be reasonably flexible — e.g. a spec of "Bluetooth 5.0" should pass for
-   a product advertising "Bluetooth 5.2" (which is backward compatible).
-   But do NOT mark a product compliant if a key spec is clearly missing.
-5. If a spec relates to price (e.g. "under ₹2000"), check the product's
-   price field directly.
+3. A product is COMPLIANT only if it satisfies ALL specs in specs_list.
+   Be reasonably flexible — e.g. "Bluetooth 5.0" should pass for "Bluetooth 5.2"
+   (backward compatible). But do NOT mark compliant if a key spec is clearly missing.
+4. If a spec relates to price (e.g. "under ₹2000"), check the price field directly.
 
 After checking all products, write a structured plain-text summary:
 
@@ -115,9 +134,9 @@ COMPLIANT PRODUCTS:
 NON-COMPLIANT (skipped): <comma-separated ASINs with brief reason>
 
 IMPORTANT:
-- Do NOT skip the amazon_product check — the search results alone do not
-  contain enough detail to verify compliance.
-- Do NOT invent specs. Only report what the tool returns.
+- The product details are ALREADY provided — do NOT call any product detail tool.
+- Use google_search ONLY when Amazon data is insufficient to confirm a spec.
+- Do NOT invent specs. Only report what the data contains.
 - If NO products in a category pass, say "No compliant products found."
 """
 
@@ -125,7 +144,7 @@ compliance_check_subagent = Agent(
     name="compliance_check_subagent",
     model=LLM_USED,
     instruction=COMPLIANCE_INSTRUCTION,
-    tools=[amazon_product, google_search],
+    tools=[google_search],
     output_key="compliance_notes",
 )
 
@@ -178,20 +197,73 @@ compliance_check_agent = SequentialAgent(
 # Helper to drive the agent from main_agent.py
 # ---------------------------------------------------------------------------
 
+def _enrich_product(product: SearchResultProduct) -> dict:
+    """Call amazon_product programmatically and merge details with search data.
+
+    Only keeps fields the LLM needs for compliance checking — strips images,
+    full URLs, and other bulky data that would waste context tokens.
+    """
+    detail = amazon_product(product.asin)
+
+    # Start with only the fields relevant for compliance
+    base = {
+        "asin": product.asin,
+        "title": product.title,
+        "brand": product.brand,
+        "price": product.price,
+        "rating": product.rating,
+        "ratings_count": product.ratings_count,
+        "is_prime": product.is_prime,
+        # image & url are preserved for the structurer to pass through
+        "image": product.image,
+        "url": product.url,
+    }
+
+    if detail.get("status") == "success":
+        desc = detail.get("description") or ""
+        base["description"] = desc[:500] if len(desc) > 500 else desc
+        base["feature_bullets"] = (detail.get("feature_bullets") or [])[:10]
+        base["specifications"] = detail.get("specifications") or {}
+    else:
+        base["description"] = None
+        base["feature_bullets"] = []
+        base["specifications"] = {}
+
+    return base
+
+
 async def check_compliance(
     runner: Runner,
     user_id: str,
     session_id: str,
     search_results: ProductSearchResults,
 ) -> ComplianceResults:
-    """Feeds product_search_agent's output into compliance_check_agent and
-    returns only the products that pass spec compliance for each category.
+    """Enriches each product with amazon_product details (programmatically),
+    then feeds the enriched data to the compliance LLM agent for verification.
 
     The runner/session passed here must be wired to compliance_check_agent.
     """
+    # ── Step 1: Programmatic amazon_product enrichment ─────────────────────
+    enriched_items = []
+    for group in search_results.items:
+        enriched_products = []
+        for p in group.products:
+            label = (p.title or p.asin)[:60]
+            print(f"  📦 Fetching details: {p.asin} — {label}...")
+            enriched_products.append(_enrich_product(p))
+
+        enriched_items.append({
+            "product": group.product,
+            "specs_list": group.specs_list,
+            "products": enriched_products,
+        })
+
+    enriched_payload = json.dumps({"items": enriched_items}, ensure_ascii=False)
+
+    # ── Step 2: LLM compliance check (google_search only) ──────────────────
     content = types.Content(
         role="user",
-        parts=[types.Part(text=search_results.model_dump_json())],
+        parts=[types.Part(text=enriched_payload)],
     )
 
     async for _event in runner.run_async(
